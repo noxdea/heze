@@ -4,6 +4,7 @@ require "optparse"
 require "antares"
 require "kramdown"
 require "zaniah"
+require "zaniah/ui"
 begin
   require "auva"
 rescue LoadError
@@ -140,7 +141,7 @@ module Heze
     def render(document)
       window = Zaniah::Platform.open_window(backend: :headless, width: @width, height: @height)
       window.text_system = @text_system if @text_system
-      window.draw { element(document) }
+      window.draw { element(document).first }
       window.tick
       device = window.device
       Zaniah::PNG.encode(device.width.to_i, device.height.to_i, device.pixels)
@@ -148,14 +149,32 @@ module Heze
       window&.close
     end
 
-    def show(document, backend: :auto, title: "Heze", watcher: nil, loader: nil)
+    def show(document, backend: :auto, title: "Heze", watcher: nil, loader: nil, files: nil, selected_path: nil)
       selected = backend == :auto ? (RUBY_PLATFORM.include?("darwin") ? :mac : RUBY_PLATFORM.match?(/mswin|mingw/) ? :windows : :linux) : backend
       window = Zaniah::Platform.open_window(backend: selected, width: @width, height: @height, title: title)
       window.text_system = @text_system if @text_system
       current = document
       error = nil
+      current_path = selected_path
+      scroll_view = nil
+      load_document = lambda do |path|
+        loader.parameters.empty? ? loader.call : loader.call(path)
+      end if loader
       window.draw do
-        view = element(current)
+        offset = scroll_view&.scroll_state&.offset
+        view, next_scroll_view = element(current, files: files, selected_path: current_path, on_select: lambda do |path|
+          begin
+            current = load_document.call(path)
+            current_path = path
+            watcher = Watcher.new(path)
+            error = nil
+          rescue StandardError => load_error
+            error = load_error
+          end
+          window.request_frame
+        end)
+        next_scroll_view.scroll_to(offset, animate: false) if offset
+        scroll_view = next_scroll_view
         error ? view.child(Zaniah::Text.new("heze: #{error.message}", size: 16, color: @theme.colors.danger)) : view
       end
       window.on_tick do
@@ -164,7 +183,7 @@ module Heze
           error = watcher.error
         elsif loader
           begin
-            current = loader.call
+            current = load_document.call(current_path)
             error = nil
           rescue StandardError => load_error
             error = load_error
@@ -179,21 +198,64 @@ module Heze
 
     private
 
-    def element(document)
+    def element(document, files: nil, selected_path: nil, on_select: nil)
       if document.is_a?(Zaniah::SVG)
-        Zaniah::Div.new.p(32).bg(@theme.colors.background).child(document)
+        root = Zaniah::Div.new.p(32).bg(@theme.colors.background).child(document)
+        [root, nil]
       else
-        lines = flatten(document).first(10_000)
-        element = Zaniah::Div.new.flex_col.p(32).gap(10).bg(@theme.colors.background)
-        lines.each { |line| element = element.child(Zaniah::Text.new(line, size: line.start_with?("#") ? 28 : 18, color: @theme.colors.text)) }
-        element
+        content = Zaniah::Div.new.flex_col.p(32).gap(14).bg(@theme.colors.background)
+        document.children.first(50_000).each { |node| content.child(render_node(node)) }
+        scroll = Zaniah::ScrollView.new(scrollbar: :always).flex_1.child(content)
+        return [Zaniah::Div.new.flex_col.bg(@theme.colors.background).child(scroll), scroll] unless files&.any?
+
+        sidebar = Zaniah::UI::Sidebar.new(width: 240)
+        files.each do |path|
+          variant = path == selected_path ? :secondary : :ghost
+          sidebar.child(Zaniah::UI::Button.new(File.basename(path), size: :sm, variant: variant).w_full
+            .on_click { on_select&.call(path) })
+        end
+        [Zaniah::Div.new.flex_row.bg(@theme.colors.background).child(sidebar).child(scroll), scroll]
       end
     end
 
-    def flatten(node)
-      return [] unless node
-      return node.children.flat_map { |child| flatten(child) } if node.type == :document
-      [node.text].compact
+    def render_node(node)
+      case node.type
+      when :header
+        size = {1 => :xl, 2 => :lg, 3 => :md}.fetch(node.attributes.fetch("level", 3).to_i, :sm)
+        Zaniah::UI::Label.new(node.text.to_s, size: size, wrap: :word)
+      when :codeblock
+        runs = Highlight.tokens(node).flat_map { |line| line.map { |token, text| {text: text, color: syntax_color(token)} } }
+        Zaniah::UI::Card.new(Zaniah::UI::Label.new(node.attributes["language"] || "code", tone: :muted, size: :xs),
+          Zaniah::UI::RichText.new(runs, selectable: false))
+      when :blockquote
+        Zaniah::Div.new.flex_row.gap(10).border(1).border_color(@theme.colors.accent).p(12)
+          .child(Zaniah::UI::Label.new(node.text.to_s, wrap: :word))
+      when :table
+        rows = node.text.to_s.lines.map { |line| line.chomp.split(" | ") }
+        columns = rows.first.to_a.each_index.map { |index| {key: index, label: "", width: 160, sortable: false, resizable: false} }
+        Zaniah::UI::Table.new(rows.map { |row| row.each_with_index.to_h }, columns: columns, height: [rows.length * 32 + 40, 120].max,
+          selection: :none)
+      when :hr
+        Zaniah::UI::Divider.new
+      when :img
+        path = node.attributes["src"].to_s
+        File.file?(path) ? Zaniah::Image.new(path) : Zaniah::UI::EmptyState.new("Image unavailable", message: path)
+      else
+        Zaniah::UI::Label.new(node.text.to_s, wrap: :word)
+      end
+    rescue StandardError => error
+      Zaniah::UI::EmptyState.new("Preview error", message: error.message)
+    end
+
+    def syntax_color(token)
+      shortname = token.respond_to?(:shortname) ? token.shortname.to_s : ""
+      case shortname
+      when /k|c/ then @theme.colors.text_muted
+      when /nb|nc|nf|n/ then @theme.colors.accent
+      when /s|dl/ then @theme.colors.success
+      when /m|mi|mf/ then @theme.colors.warning
+      else @theme.colors.text
+      end
     end
   end
 
@@ -258,10 +320,12 @@ module Heze
       elsif out.tty? && options[:backend] != :headless
         begin
           target = File.directory?(path) ? Directory.markdown(path).first : path
+          files = File.directory?(path) ? Directory.markdown(path) : nil
           watcher = options[:no_watch] || !target ? nil : Watcher.new(target)
-          loader = target && -> { Markdown.parse(Source.read(target)) }
+          loader = target && ->(selected = target) { Markdown.parse(Source.read(selected)) }
           Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).show(
-            document, backend: options[:backend], title: "Heze — #{File.basename(path)}", watcher: watcher, loader: loader
+            document, backend: options[:backend], title: "Heze — #{File.basename(path)}", watcher: watcher, loader: loader,
+            files: files, selected_path: target
           )
         rescue StandardError => error
           err.puts "heze: native preview unavailable: #{error.message}"
