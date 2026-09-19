@@ -140,16 +140,7 @@ module Heze
     def render(document)
       window = Zaniah::Platform.open_window(backend: :headless, width: @width, height: @height)
       window.text_system = @text_system if @text_system
-      window.draw do
-        if document.is_a?(Zaniah::SVG)
-          Zaniah::Div.new.p(32).bg(@theme.colors.background).child(document)
-        else
-          lines = flatten(document).first(160)
-          element = Zaniah::Div.new.flex_col.p(32).gap(10).bg(@theme.colors.background)
-          lines.each { |line| element = element.child(Zaniah::Text.new(line, size: line.start_with?("#") ? 28 : 18, color: @theme.colors.text)) }
-          element
-        end
-      end
+      window.draw { element(document) }
       window.tick
       device = window.device
       Zaniah::PNG.encode(device.width.to_i, device.height.to_i, device.pixels)
@@ -157,7 +148,28 @@ module Heze
       window&.close
     end
 
+    def show(document, backend: :auto, title: "Heze")
+      selected = backend == :auto ? (RUBY_PLATFORM.include?("darwin") ? :mac : RUBY_PLATFORM.match?(/mswin|mingw/) ? :windows : :linux) : backend
+      window = Zaniah::Platform.open_window(backend: selected, width: @width, height: @height, title: title)
+      window.text_system = @text_system if @text_system
+      window.draw { element(document) }
+      window.run
+    ensure
+      window&.close
+    end
+
     private
+
+    def element(document)
+      if document.is_a?(Zaniah::SVG)
+        Zaniah::Div.new.p(32).bg(@theme.colors.background).child(document)
+      else
+        lines = flatten(document).first(10_000)
+        element = Zaniah::Div.new.flex_col.p(32).gap(10).bg(@theme.colors.background)
+        lines.each { |line| element = element.child(Zaniah::Text.new(line, size: line.start_with?("#") ? 28 : 18, color: @theme.colors.text)) }
+        element
+      end
+    end
 
     def flatten(node)
       return [] unless node
@@ -209,12 +221,15 @@ module Heze
         Markdown.parse(Source.read(path))
       end
       if options[:export]
-        bytes = if document.is_a?(Zaniah::SVG)
-          Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).render(document)
-        else
-          Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).render(document)
-        end
+        bytes = Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).render(document)
         File.binwrite(options[:export], bytes)
+      elsif out.tty? && options[:backend] != :headless
+        begin
+          Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).show(document, backend: options[:backend], title: "Heze — #{File.basename(path)}")
+        rescue StandardError => error
+          err.puts "heze: native preview unavailable: #{error.message}"
+          out.puts "heze: #{path} (#{document.type if document.respond_to?(:type)})"
+        end
       else
         out.puts "heze: #{path} (#{document.type if document.respond_to?(:type)})"
         Directory.markdown(path).each { |entry| out.puts "  #{entry}" } if File.directory?(path)
