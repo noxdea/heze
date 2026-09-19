@@ -12,6 +12,6 @@ module Heze
     def self.parse: (String path) -> untyped
   end
   class Renderer
-    def render: (untyped document) -> String
+    def render: (untyped document, ?base_path: String?) -> String
   end
 end
