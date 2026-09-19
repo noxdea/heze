@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "optparse"
+require "antares"
 require "kramdown"
 require "zaniah"
 begin
@@ -53,7 +54,14 @@ module Heze
       when :a then "#{inline_text(node)} (#{node.attr["href"]})"
       when :img then "[image: #{node.attr["alt"] || node.attr["src"]}]"
       when :header then "#{"#" * node.options.fetch(:level, 1)} #{inline_text(node)}"
+      when :ul then node.children.map { |child| "• #{inline_text(child)}" }.join("\n")
+      when :ol then node.children.map.with_index { |child, index| "#{index + 1}. #{inline_text(child)}" }.join("\n")
+      when :blockquote then node.children.map { |child| "│ #{inline_text(child)}" }.join("\n")
+      when :table
+        node.children.flat_map { |section| section.children }.map { |row| row.children.map { |cell| inline_text(cell) }.join(" | ") }.join("\n")
       when :hr then "---"
+      when :blank then ""
+      when :li, :p, :td, :th then inline_text(node)
       else inline_text(node)
       end
       attributes = node.attr.dup
@@ -153,13 +161,14 @@ module Heze
 
     def flatten(node)
       return [] unless node
-      [node.text].compact + node.children.flat_map { |child| flatten(child) }
+      return node.children.flat_map { |child| flatten(child) } if node.type == :document
+      [node.text].compact
     end
   end
 
   class Watcher
     def initialize(path, latency: 0.1)
-      @path, @latency, @last, @event_at = path, latency, File.mtime(path), 0.0
+      @path, @latency, @last, @event_at = path, latency, (File.mtime(path) rescue nil), 0.0
       @watch = defined?(Zaniah::Platform) && Zaniah::Platform.watch(File.dirname(path), latency: latency)
     end
 
