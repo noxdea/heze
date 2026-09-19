@@ -56,7 +56,9 @@ module Heze
       when :hr then "---"
       else inline_text(node)
       end
-      Node.new(type: node.type, text: text, children: children, attributes: node.attr.dup)
+      attributes = node.attr.dup
+      attributes["language"] = node.options[:lang] if node.type == :codeblock && node.options[:lang]
+      Node.new(type: node.type, text: text, children: children, attributes: attributes)
     end
 
     def inline_text(node)
@@ -64,6 +66,24 @@ module Heze
       node.children.map { |child| map(child).text.to_s }.join
     end
     private_class_method :inline_text
+  end
+
+  module Highlight
+    module_function
+
+    def tokens(node)
+      return [] unless node&.type == :codeblock
+      require "antares"
+      require "rouge"
+      lexer = Rouge::Lexer.find_fancy(node.attributes["language"].to_s)
+      lines = node.text.to_s.lines
+      highlighter = Antares::Highlighter.new(lexer: lexer, lines: ->(index) { lines[index] }, line_count: -> { lines.length })
+      highlighter.tokens_in(0...lines.length)
+    rescue LoadError, Rouge::Guesser::Ambiguous
+      node.text.to_s.lines.map { |line| [[nil, line]] }
+    rescue StandardError
+      node.text.to_s.lines.map { |line| [[nil, line]] }
+    end
   end
 
   module SVG

@@ -13,6 +13,7 @@ RSpec.describe Heze do
     document = Heze::Markdown.parse("```ruby\nputs 1\n```")
     expect(document.children.first.type).to eq(:codeblock)
     expect(document.children.first.text).to include("puts 1")
+    expect(Heze::Highlight.tokens(document.children.first)).not_to be_empty
   end
 
   it "rejects unsupported SVG features" do
