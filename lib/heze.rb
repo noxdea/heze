@@ -4,6 +4,10 @@ require "optparse"
 require "kramdown"
 require "zaniah"
 begin
+  require "auva"
+rescue LoadError
+end
+begin
   require "menkar"
 rescue LoadError
   # The fallback keeps the parser useful while an optional local Menkar checkout is used.
@@ -76,6 +80,25 @@ module Heze
     end
   end
 
+  module Theme
+    module_function
+
+    def resolve(value)
+      return value if value.respond_to?(:colors)
+      return Auva.load(value) if defined?(Auva) && File.file?(value.to_s)
+      return Auva.builtin(value) if defined?(Auva)
+      Zaniah::Theme.public_send(value.to_s)
+    rescue NoMethodError
+      raise Error, "unknown theme: #{value}"
+    end
+  end
+
+  module Directory
+    module_function
+
+    def markdown(path) = Dir[File.join(path, "**/*.md")].sort
+  end
+
   class Renderer
     def initialize(theme: Zaniah::Theme.dark, width: 900, height: 1000)
       @theme, @width, @height = theme, width, height
@@ -89,11 +112,15 @@ module Heze
     def render(document)
       window = Zaniah::Platform.open_window(backend: :headless, width: @width, height: @height)
       window.text_system = @text_system if @text_system
-      lines = flatten(document).first(160)
       window.draw do
-        element = Zaniah::Div.new.flex_col.p(32).gap(10).bg(@theme.colors.background)
-        lines.each { |line| element = element.child(Zaniah::Text.new(line, size: line.start_with?("#") ? 28 : 18, color: @theme.colors.text)) }
-        element
+        if document.is_a?(Zaniah::SVG)
+          Zaniah::Div.new.p(32).bg(@theme.colors.background).child(document)
+        else
+          lines = flatten(document).first(160)
+          element = Zaniah::Div.new.flex_col.p(32).gap(10).bg(@theme.colors.background)
+          lines.each { |line| element = element.child(Zaniah::Text.new(line, size: line.start_with?("#") ? 28 : 18, color: @theme.colors.text)) }
+          element
+        end
       end
       window.tick
       device = window.device
@@ -112,16 +139,17 @@ module Heze
 
   class Watcher
     def initialize(path, latency: 0.1)
-      @path, @latency, @last = path, latency, File.mtime(path)
+      @path, @latency, @last, @event_at = path, latency, File.mtime(path), 0.0
       @watch = defined?(Zaniah::Platform) && Zaniah::Platform.watch(File.dirname(path), latency: latency)
     end
 
     def poll
       events = @watch ? @watch.poll(timeout: 0) : []
       changed = events.any? { |event| File.expand_path(event.path) == File.expand_path(@path) }
-      if !changed && File.file?(@path) && File.mtime(@path) != @last
-        changed = true
-      end
+      changed ||= File.file?(@path) && File.mtime(@path) != @last
+      now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      return false if changed && now - @event_at < @latency
+      @event_at = now if changed
       @last = File.mtime(@path) if changed && File.file?(@path)
       changed
     rescue Errno::ENOENT
@@ -131,17 +159,19 @@ module Heze
 
   class CLI
     def self.run(argv, out: $stdout, err: $stderr)
-      options = {export: nil, width: 900, height: 1000}
+      options = {export: nil, width: 900, height: 1000, theme: :dark, backend: :auto}
       OptionParser.new do |opts|
         opts.banner = "Usage: heze PATH [options]"
         opts.on("--export PATH") { |v| options[:export] = v }
         opts.on("--width N", Integer) { |v| options[:width] = v }
         opts.on("--height N", Integer) { |v| options[:height] = v }
+        opts.on("--theme NAME") { |v| options[:theme] = v }
+        opts.on("--backend NAME") { |v| options[:backend] = v.to_sym }
         opts.on("--no-watch") { options[:no_watch] = true }
       end.parse!(argv)
       path = argv.fetch(0)
       document = if File.directory?(path)
-        first = Dir[File.join(path, "**/*.md")].sort.first or raise Error, "no Markdown files in #{path}"
+        first = Directory.markdown(path).first or raise Error, "no Markdown files in #{path}"
         Markdown.parse(Source.read(first))
       elsif File.extname(path).downcase == ".svg"
         SVG.parse(path)
@@ -150,9 +180,9 @@ module Heze
       end
       if options[:export]
         bytes = if document.is_a?(Zaniah::SVG)
-          Renderer.new(width: options[:width], height: options[:height]).render(Node.new(type: :document, text: File.basename(path), children: [], attributes: {}))
+          Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).render(document)
         else
-          Renderer.new(width: options[:width], height: options[:height]).render(document)
+          Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).render(document)
         end
         File.binwrite(options[:export], bytes)
       else
