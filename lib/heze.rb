@@ -40,7 +40,7 @@ module Heze
     module_function
 
     def parse(text)
-      document = Kramdown::Document.new(text)
+      document = Kramdown::Document.new(text, input: "GFM")
       Node.new(type: :document, text: nil, children: document.root.children.map { |node| map(node) }, attributes: {})
     rescue StandardError => error
       raise Error, "markdown parse failed: #{error.message}"
@@ -168,6 +168,7 @@ module Heze
         opts.on("--theme NAME") { |v| options[:theme] = v }
         opts.on("--backend NAME") { |v| options[:backend] = v.to_sym }
         opts.on("--no-watch") { options[:no_watch] = true }
+        opts.on("--watch") { options[:watch] = true }
       end.parse!(argv)
       path = argv.fetch(0)
       document = if File.directory?(path)
@@ -187,11 +188,37 @@ module Heze
         File.binwrite(options[:export], bytes)
       else
         out.puts "heze: #{path} (#{document.type if document.respond_to?(:type)})"
+        Directory.markdown(path).each { |entry| out.puts "  #{entry}" } if File.directory?(path)
       end
+      watch = options[:watch] || (!options[:no_watch] && !options[:export] && out.tty?)
+      watch(path, options, out: out, err: err) if watch
       0
     rescue OptionParser::ParseError, KeyError, Error => error
       err.puts "heze: #{error.message}"
       1
     end
+
+    def self.watch(path, options, out:, err:)
+      target = File.directory?(path) ? Directory.markdown(path).first : path
+      return unless target
+      watcher = Watcher.new(target)
+      loop do
+        sleep 0.1
+        next unless watcher.poll
+        begin
+          document = Markdown.parse(Source.read(target))
+          if options[:export]
+            png = Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).render(document)
+            File.binwrite(options[:export], png)
+          end
+          out.puts "heze: updated #{target}"
+        rescue StandardError => error
+          err.puts "heze: #{error.message}"
+        end
+      end
+    rescue Interrupt
+      out.puts "heze: stopped"
+    end
+    private_class_method :watch
   end
 end

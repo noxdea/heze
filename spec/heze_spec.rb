@@ -9,6 +9,12 @@ RSpec.describe Heze do
     expect(document.children.first.text).to eq("# Title")
   end
 
+  it "parses fenced code blocks in GFM mode" do
+    document = Heze::Markdown.parse("```ruby\nputs 1\n```")
+    expect(document.children.first.type).to eq(:codeblock)
+    expect(document.children.first.text).to include("puts 1")
+  end
+
   it "rejects unsupported SVG features" do
     path = Tempfile.new(["icon", ".svg"])
     path.write('<svg><filter id="blur"/></svg>')
