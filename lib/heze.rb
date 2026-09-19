@@ -155,7 +155,9 @@ module Heze
     end
 
     def render(document, base_path: nil)
-      window = Zaniah::Platform.open_window(backend: :headless, width: @width, height: @height)
+      app = Zaniah::App.new
+      window = app.open_window(backend: :headless, width: @width, height: @height)
+      app.global(:theme, @theme)
       window.text_system = @text_system if @text_system
       window.draw { element(document, base_path: base_path).first }
       window.tick
@@ -167,7 +169,9 @@ module Heze
 
     def show(document, backend: :auto, title: "Heze", watcher: nil, loader: nil, files: nil, selected_path: nil)
       selected = backend == :auto ? (RUBY_PLATFORM.include?("darwin") ? :mac : RUBY_PLATFORM.match?(/mswin|mingw/) ? :windows : :linux) : backend
-      window = Zaniah::Platform.open_window(backend: selected, width: @width, height: @height, title: title)
+      app = Zaniah::App.new
+      window = app.open_window(backend: selected, width: @width, height: @height, title: title)
+      app.global(:theme, @theme)
       window.text_system = @text_system if @text_system
       current = document
       error = nil
