@@ -1,0 +1,17 @@
+module Heze
+  VERSION: String
+  class Error < StandardError
+  end
+  module Source
+    def self.read: (String path) -> String
+  end
+  module Markdown
+    def self.parse: (String text) -> untyped
+  end
+  module SVG
+    def self.parse: (String path) -> untyped
+  end
+  class Renderer
+    def render: (untyped document, ?base_path: String?) -> String
+  end
+end
