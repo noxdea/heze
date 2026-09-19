@@ -148,11 +148,30 @@ module Heze
       window&.close
     end
 
-    def show(document, backend: :auto, title: "Heze")
+    def show(document, backend: :auto, title: "Heze", watcher: nil, loader: nil)
       selected = backend == :auto ? (RUBY_PLATFORM.include?("darwin") ? :mac : RUBY_PLATFORM.match?(/mswin|mingw/) ? :windows : :linux) : backend
       window = Zaniah::Platform.open_window(backend: selected, width: @width, height: @height, title: title)
       window.text_system = @text_system if @text_system
-      window.draw { element(document) }
+      current = document
+      error = nil
+      window.draw do
+        view = element(current)
+        error ? view.child(Zaniah::Text.new("heze: #{error.message}", size: 16, color: @theme.colors.danger)) : view
+      end
+      window.on_tick do
+        next unless watcher&.poll
+        if watcher.error
+          error = watcher.error
+        elsif loader
+          begin
+            current = loader.call
+            error = nil
+          rescue StandardError => load_error
+            error = load_error
+          end
+        end
+        window.request_frame
+      end
       window.run
     ensure
       window&.close
@@ -179,6 +198,8 @@ module Heze
   end
 
   class Watcher
+    attr_reader :error
+
     def initialize(path, latency: 0.1)
       @path, @latency, @last, @event_at = path, latency, (File.mtime(path) rescue nil), 0.0
       @watch = defined?(Zaniah::Platform) && Zaniah::Platform.watch(File.dirname(path), latency: latency)
@@ -192,8 +213,13 @@ module Heze
       return false if changed && now - @event_at < @latency
       @event_at = now if changed
       @last = File.mtime(@path) if changed && File.file?(@path)
+      @error = nil if changed
       changed
     rescue Errno::ENOENT
+      @error = Error.new("file not found: #{@path}")
+      false
+    rescue StandardError => error
+      @error = error
       false
     end
   end
@@ -231,7 +257,12 @@ module Heze
         File.binwrite(options[:export], bytes)
       elsif out.tty? && options[:backend] != :headless
         begin
-          Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).show(document, backend: options[:backend], title: "Heze — #{File.basename(path)}")
+          target = File.directory?(path) ? Directory.markdown(path).first : path
+          watcher = options[:no_watch] || !target ? nil : Watcher.new(target)
+          loader = target && -> { Markdown.parse(Source.read(target)) }
+          Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).show(
+            document, backend: options[:backend], title: "Heze — #{File.basename(path)}", watcher: watcher, loader: loader
+          )
         rescue StandardError => error
           err.puts "heze: native preview unavailable: #{error.message}"
           out.puts "heze: #{path} (#{document.type if document.respond_to?(:type)})"
