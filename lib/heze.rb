@@ -199,6 +199,8 @@ module Heze
   end
 
   class CLI
+    BACKENDS = %i[auto headless tui mac linux windows].freeze
+
     def self.run(argv, out: $stdout, err: $stderr)
       options = {export: nil, width: 900, height: 1000, theme: :dark, backend: :auto}
       OptionParser.new do |opts|
@@ -207,7 +209,11 @@ module Heze
         opts.on("--width N", Integer) { |v| options[:width] = v }
         opts.on("--height N", Integer) { |v| options[:height] = v }
         opts.on("--theme NAME") { |v| options[:theme] = v }
-        opts.on("--backend NAME") { |v| options[:backend] = v.to_sym }
+        opts.on("--backend NAME") do |value|
+          backend = value.to_sym
+          raise Error, "unknown backend: #{value}" unless BACKENDS.include?(backend)
+          options[:backend] = backend
+        end
         opts.on("--no-watch") { options[:no_watch] = true }
         opts.on("--watch") { options[:watch] = true }
       end.parse!(argv)

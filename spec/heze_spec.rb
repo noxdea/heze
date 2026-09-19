@@ -2,6 +2,7 @@
 
 require "tempfile"
 require "fileutils"
+require "stringio"
 
 RSpec.describe Heze do
   it "maps Markdown headings and paragraphs" do
@@ -39,6 +40,17 @@ RSpec.describe Heze do
     watcher = Heze::Watcher.new(path)
     File.unlink(path)
     expect { watcher.poll }.not_to raise_error
+  ensure
+    FileUtils.remove_entry(dir) if dir
+  end
+
+  it "rejects unknown preview backends" do
+    dir = Dir.mktmpdir("heze-backend")
+    path = File.join(dir, "doc.md")
+    File.write(path, "# title\n")
+    err = StringIO.new
+    expect(Heze::CLI.run([path, "--backend", "nonsense"], out: StringIO.new, err: err)).to eq(1)
+    expect(err.string).to include("unknown backend")
   ensure
     FileUtils.remove_entry(dir) if dir
   end
