@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "optparse"
+require "pathname"
 require "antares"
 require "kramdown"
 require "kramdown-parser-gfm"
@@ -139,10 +140,10 @@ module Heze
       @font_db = @font = @text_system = nil
     end
 
-    def render(document)
+    def render(document, base_path: nil)
       window = Zaniah::Platform.open_window(backend: :headless, width: @width, height: @height)
       window.text_system = @text_system if @text_system
-      window.draw { element(document).first }
+      window.draw { element(document, base_path: base_path).first }
       window.tick
       device = window.device
       Zaniah::PNG.encode(device.width.to_i, device.height.to_i, device.pixels)
@@ -163,7 +164,8 @@ module Heze
       end if loader
       window.draw do
         offset = scroll_view&.scroll_state&.offset
-        view, next_scroll_view = element(current, files: files, selected_path: current_path, on_select: lambda do |path|
+        view, next_scroll_view = element(current, files: files, selected_path: current_path,
+          base_path: current_path && File.dirname(current_path), on_select: lambda do |path|
           begin
             current = load_document.call(path)
             current_path = path
@@ -199,14 +201,14 @@ module Heze
 
     private
 
-    def element(document, files: nil, selected_path: nil, on_select: nil)
+    def element(document, files: nil, selected_path: nil, base_path: nil, on_select: nil)
       if document.is_a?(Zaniah::SVG)
         root = Zaniah::Div.new.p(32).bg(@theme.colors.background).child(document)
         [root, nil]
       else
         nodes = document.children.first(50_000)
         scroll = Zaniah::List.new(count: nodes.length, estimated_height: 40) do |index|
-          Zaniah::Div.new.p([7, 0]).child(render_node(nodes[index]))
+          Zaniah::Div.new.p([7, 0]).child(render_node(nodes[index], base_path: base_path))
         end.flex_1
         return [Zaniah::Div.new.flex_col.bg(@theme.colors.background).child(scroll), scroll] unless files&.any?
 
@@ -220,7 +222,7 @@ module Heze
       end
     end
 
-    def render_node(node)
+    def render_node(node, base_path: nil)
       case node.type
       when :header
         size = {1 => :xl, 2 => :lg, 3 => :md}.fetch(node.attributes.fetch("level", 3).to_i, :sm)
@@ -241,6 +243,7 @@ module Heze
         Zaniah::UI::Divider.new
       when :img
         path = node.attributes["src"].to_s
+        path = File.expand_path(path, base_path) if base_path && !Pathname.new(path).absolute?
         File.file?(path) ? Zaniah::Image.new(path) : Zaniah::UI::EmptyState.new("Image unavailable", message: path)
       else
         Zaniah::UI::Label.new(node.text.to_s, wrap: :word)
@@ -280,8 +283,9 @@ module Heze
       @error = nil if changed
       changed
     rescue Errno::ENOENT
+      changed = @error.nil?
       @error = Error.new("file not found: #{@path}")
-      false
+      changed
     rescue StandardError => error
       @error = error
       false
@@ -308,16 +312,18 @@ module Heze
         opts.on("--watch") { options[:watch] = true }
       end.parse!(argv)
       path = argv.fetch(0)
-      document = if File.directory?(path)
-        first = Directory.markdown(path).first or raise Error, "no Markdown files in #{path}"
-        Markdown.parse(Source.read(first))
+      document_path = if File.directory?(path)
+        Directory.markdown(path).first or raise Error, "no Markdown files in #{path}"
       elsif File.extname(path).downcase == ".svg"
-        SVG.parse(path)
+        path
       else
-        Markdown.parse(Source.read(path))
+        path
       end
+      document = File.extname(document_path).downcase == ".svg" ? SVG.parse(document_path) : Markdown.parse(Source.read(document_path))
       if options[:export]
-        bytes = Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).render(document)
+        bytes = Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).render(
+          document, base_path: File.dirname(File.expand_path(document_path))
+        )
         File.binwrite(options[:export], bytes)
       elsif out.tty? && options[:backend] != :headless
         begin
@@ -355,7 +361,9 @@ module Heze
         begin
           document = Markdown.parse(Source.read(target))
           if options[:export]
-            png = Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).render(document)
+            png = Renderer.new(theme: Theme.resolve(options[:theme]), width: options[:width], height: options[:height]).render(
+              document, base_path: File.dirname(File.expand_path(target))
+            )
             File.binwrite(options[:export], png)
           end
           out.puts "heze: updated #{target}"

@@ -40,6 +40,7 @@ RSpec.describe Heze do
     watcher = Heze::Watcher.new(path)
     File.unlink(path)
     expect { watcher.poll }.not_to raise_error
+    expect(watcher.error).to be_a(Heze::Error)
   ensure
     FileUtils.remove_entry(dir) if dir
   end
@@ -61,5 +62,17 @@ RSpec.describe Heze do
     second = Heze::Renderer.new(width: 320, height: 240).render(document)
     expect(first.byteslice(0, 8)).to eq("\x89PNG\r\n\x1a\n".b)
     expect(second).to eq(first)
+  end
+
+  it "resolves Markdown images relative to the source file" do
+    dir = Dir.mktmpdir("heze-images")
+    FileUtils.mkdir_p(File.join(dir, "assets"))
+    File.binwrite(File.join(dir, "assets", "dot.png"), Zaniah::PNG.encode(1, 1, "\xff\x00\x00\xff".b))
+    path = File.join(dir, "doc.md")
+    File.write(path, "![dot](assets/dot.png)\n")
+    document = Heze::Markdown.parse(Heze::Source.read(path))
+    expect(Heze::Renderer.new(width: 160, height: 120).render(document, base_path: dir)).to start_with("\x89PNG".b)
+  ensure
+    FileUtils.remove_entry(dir) if dir
   end
 end
