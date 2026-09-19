@@ -174,7 +174,7 @@ module Heze
           end
           window.request_frame
         end)
-        next_scroll_view.scroll_to(offset, animate: false) if offset
+        next_scroll_view.scroll_state.offset = offset if offset && next_scroll_view
         scroll_view = next_scroll_view
         error ? view.child(Zaniah::Text.new("heze: #{error.message}", size: 16, color: @theme.colors.danger)) : view
       end
@@ -204,9 +204,10 @@ module Heze
         root = Zaniah::Div.new.p(32).bg(@theme.colors.background).child(document)
         [root, nil]
       else
-        content = Zaniah::Div.new.flex_col.p(32).gap(14).bg(@theme.colors.background)
-        document.children.first(50_000).each { |node| content.child(render_node(node)) }
-        scroll = Zaniah::ScrollView.new(scrollbar: :always).flex_1.child(content)
+        nodes = document.children.first(50_000)
+        scroll = Zaniah::List.new(count: nodes.length, estimated_height: 40) do |index|
+          Zaniah::Div.new.p([7, 0]).child(render_node(nodes[index]))
+        end.flex_1
         return [Zaniah::Div.new.flex_col.bg(@theme.colors.background).child(scroll), scroll] unless files&.any?
 
         sidebar = Zaniah::UI::Sidebar.new(width: 240)
