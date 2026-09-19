@@ -38,7 +38,9 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "alkaid", "~> 0.1"
   spec.add_dependency "antares", "~> 0.2"
+  spec.add_dependency "fiddle"
   spec.add_dependency "kramdown", "~> 2.4"
+  spec.add_dependency "kramdown-parser-gfm", "~> 1.0"
   spec.add_dependency "kochab", "~> 0.2"
   spec.add_dependency "menkar", "~> 0.1"
   spec.add_dependency "zaniah", ">= 0.6.0", "< 0.7"

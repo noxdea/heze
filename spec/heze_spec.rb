@@ -54,4 +54,12 @@ RSpec.describe Heze do
   ensure
     FileUtils.remove_entry(dir) if dir
   end
+
+  it "renders structured Markdown as a deterministic PNG" do
+    document = Heze::Markdown.parse("# Title\n\n```ruby\nputs 1\n```\n\n> quote")
+    first = Heze::Renderer.new(width: 320, height: 240).render(document)
+    second = Heze::Renderer.new(width: 320, height: 240).render(document)
+    expect(first.byteslice(0, 8)).to eq("\x89PNG\r\n\x1a\n".b)
+    expect(second).to eq(first)
+  end
 end

@@ -3,6 +3,7 @@
 require "optparse"
 require "antares"
 require "kramdown"
+require "kramdown-parser-gfm"
 require "zaniah"
 require "zaniah/ui"
 begin
