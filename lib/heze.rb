@@ -273,6 +273,15 @@ module Heze
     end
 
     def poll
+      unless File.file?(@path)
+        changed = @error.nil?
+        @error = Error.new("file not found: #{@path}")
+        return changed
+      end
+      if @error
+        @error = nil
+        return true
+      end
       events = @watch ? @watch.poll(timeout: 0) : []
       changed = events.any? { |event| File.expand_path(event.path) == File.expand_path(@path) }
       changed ||= File.file?(@path) && File.mtime(@path) != @last
@@ -281,10 +290,6 @@ module Heze
       @event_at = now if changed
       @last = File.mtime(@path) if changed && File.file?(@path)
       @error = nil if changed
-      changed
-    rescue Errno::ENOENT
-      changed = @error.nil?
-      @error = Error.new("file not found: #{@path}")
       changed
     rescue StandardError => error
       @error = error
