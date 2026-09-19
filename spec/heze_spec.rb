@@ -75,4 +75,13 @@ RSpec.describe Heze do
   ensure
     FileUtils.remove_entry(dir) if dir
   end
+
+  it "decodes Japanese Windows-31J Markdown" do
+    dir = Dir.mktmpdir("heze-encoding")
+    path = File.join(dir, "doc.md")
+    File.binwrite(path, "# 日本語の見出し\n".encode("Windows-31J"))
+    expect(Heze::Source.read(path)).to include("日本語の見出し")
+  ensure
+    FileUtils.remove_entry(dir) if dir
+  end
 end

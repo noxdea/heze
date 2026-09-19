@@ -30,7 +30,7 @@ module Heze
       if defined?(Menkar)
         detection = Menkar.detect(bytes)
         raise Error, "binary input: #{path}" if detection.binary
-        return Menkar.decode(bytes, detection)
+        return japanese_fallback(bytes, Menkar.decode(bytes, detection), detection)
       end
       bytes.force_encoding(Encoding::UTF_8)
       raise Error, "invalid UTF-8 input: #{path}" unless bytes.valid_encoding?
@@ -38,6 +38,20 @@ module Heze
     rescue Errno::ENOENT
       raise Error, "file not found: #{path}"
     end
+
+    def japanese_fallback(bytes, text, detection)
+      return text unless detection.encoding == Encoding::GBK
+
+      candidate = bytes.dup.force_encoding(Encoding::Windows_31J).encode(Encoding::UTF_8)
+      japanese_score(candidate) > japanese_score(text) ? candidate : text
+    rescue EncodingError
+      text
+    end
+
+    def japanese_score(text)
+      text.scan(/[ぁ-ゟ゠-ヿ]/).length
+    end
+    private_class_method :japanese_fallback, :japanese_score
   end
 
   module Markdown
