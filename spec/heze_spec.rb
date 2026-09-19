@@ -84,4 +84,8 @@ RSpec.describe Heze do
   ensure
     FileUtils.remove_entry(dir) if dir
   end
+
+  it "strips a UTF-8 BOM before parsing Markdown" do
+    expect(Heze::Markdown.parse("\uFEFF# title\n").children.first.text).to eq("# title")
+  end
 end

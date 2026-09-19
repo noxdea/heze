@@ -30,11 +30,11 @@ module Heze
       if defined?(Menkar)
         detection = Menkar.detect(bytes)
         raise Error, "binary input: #{path}" if detection.binary
-        return japanese_fallback(bytes, Menkar.decode(bytes, detection), detection)
+        return japanese_fallback(bytes, Menkar.decode(bytes, detection), detection).delete_prefix("\uFEFF")
       end
       bytes.force_encoding(Encoding::UTF_8)
       raise Error, "invalid UTF-8 input: #{path}" unless bytes.valid_encoding?
-      bytes
+      bytes.delete_prefix("\uFEFF")
     rescue Errno::ENOENT
       raise Error, "file not found: #{path}"
     end
@@ -58,6 +58,7 @@ module Heze
     module_function
 
     def parse(text)
+      text = text.to_s.delete_prefix("\uFEFF")
       document = Kramdown::Document.new(text, input: "GFM")
       Node.new(type: :document, text: nil, children: document.root.children.map { |node| map(node) }, attributes: {})
     rescue StandardError => error
