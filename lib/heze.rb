@@ -134,7 +134,7 @@ module Heze
       return Auva.load(value) if defined?(Auva) && File.file?(value.to_s)
       return Auva.builtin(value) if defined?(Auva)
       Zaniah::Theme.public_send(value.to_s)
-    rescue NoMethodError
+    rescue StandardError
       raise Error, "unknown theme: #{value}"
     end
   end
