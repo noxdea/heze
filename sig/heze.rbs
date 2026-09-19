@@ -1,4 +1,17 @@
 module Heze
   VERSION: String
-  # See the writing guide of rbs: https://github.com/ruby/rbs#guides
+  class Error < StandardError
+  end
+  module Source
+    def self.read: (String path) -> String
+  end
+  module Markdown
+    def self.parse: (String text) -> untyped
+  end
+  module SVG
+    def self.parse: (String path) -> untyped
+  end
+  class Renderer
+    def render: (untyped document) -> String
+  end
 end
