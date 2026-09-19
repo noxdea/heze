@@ -1,0 +1,167 @@
+# frozen_string_literal: true
+
+require "optparse"
+require "kramdown"
+require "zaniah"
+begin
+  require "menkar"
+rescue LoadError
+  # The fallback keeps the parser useful while an optional local Menkar checkout is used.
+end
+require_relative "heze/version"
+
+module Heze
+  class Error < StandardError; end
+  Node = Data.define(:type, :text, :children, :attributes)
+
+  module Source
+    module_function
+
+    def read(path)
+      bytes = File.binread(path)
+      if defined?(Menkar)
+        detection = Menkar.detect(bytes)
+        raise Error, "binary input: #{path}" if detection.binary
+        return Menkar.decode(bytes, detection)
+      end
+      bytes.force_encoding(Encoding::UTF_8)
+      raise Error, "invalid UTF-8 input: #{path}" unless bytes.valid_encoding?
+      bytes
+    rescue Errno::ENOENT
+      raise Error, "file not found: #{path}"
+    end
+  end
+
+  module Markdown
+    module_function
+
+    def parse(text)
+      document = Kramdown::Document.new(text)
+      Node.new(type: :document, text: nil, children: document.root.children.map { |node| map(node) }, attributes: {})
+    rescue StandardError => error
+      raise Error, "markdown parse failed: #{error.message}"
+    end
+
+    def map(node)
+      children = node.children.map { |child| map(child) }
+      text = case node.type
+      when :text, :codeblock, :codespan then node.value.to_s
+      when :a then "#{inline_text(node)} (#{node.attr["href"]})"
+      when :img then "[image: #{node.attr["alt"] || node.attr["src"]}]"
+      when :header then "#{"#" * node.options.fetch(:level, 1)} #{inline_text(node)}"
+      when :hr then "---"
+      else inline_text(node)
+      end
+      Node.new(type: node.type, text: text, children: children, attributes: node.attr.dup)
+    end
+
+    def inline_text(node)
+      return node.value.to_s if node.children.empty? && node.respond_to?(:value)
+      node.children.map { |child| map(child).text.to_s }.join
+    end
+    private_class_method :inline_text
+  end
+
+  module SVG
+    module_function
+
+    def parse(path)
+      source = File.binread(path)
+      raise Error, "unsupported SVG feature: #{Regexp.last_match(1)}" if source.match(/<(filter|mask|text|linearGradient|radialGradient)\b/i)
+      Zaniah::SVG.open(path)
+    rescue ArgumentError => error
+      raise Error, error.message
+    rescue Errno::ENOENT
+      raise Error, "SVG file not found: #{path}"
+    end
+  end
+
+  class Renderer
+    def initialize(theme: Zaniah::Theme.dark, width: 900, height: 1000)
+      @theme, @width, @height = theme, width, height
+      @font_db = Zaniah::TextSystem::FontDB.new(paths: [])
+      @font = @font_db.find(family: theme.typography.font_sans)
+      @text_system = Zaniah::TextSystem::Renderer.new(font: @font, font_db: @font_db)
+    rescue StandardError
+      @font_db = @font = @text_system = nil
+    end
+
+    def render(document)
+      window = Zaniah::Platform.open_window(backend: :headless, width: @width, height: @height)
+      window.text_system = @text_system if @text_system
+      lines = flatten(document).first(160)
+      window.draw do
+        element = Zaniah::Div.new.flex_col.p(32).gap(10).bg(@theme.colors.background)
+        lines.each { |line| element = element.child(Zaniah::Text.new(line, size: line.start_with?("#") ? 28 : 18, color: @theme.colors.text)) }
+        element
+      end
+      window.tick
+      device = window.device
+      Zaniah::PNG.encode(device.width.to_i, device.height.to_i, device.pixels)
+    ensure
+      window&.close
+    end
+
+    private
+
+    def flatten(node)
+      return [] unless node
+      [node.text].compact + node.children.flat_map { |child| flatten(child) }
+    end
+  end
+
+  class Watcher
+    def initialize(path, latency: 0.1)
+      @path, @latency, @last = path, latency, File.mtime(path)
+      @watch = defined?(Zaniah::Platform) && Zaniah::Platform.watch(File.dirname(path), latency: latency)
+    end
+
+    def poll
+      events = @watch ? @watch.poll(timeout: 0) : []
+      changed = events.any? { |event| File.expand_path(event.path) == File.expand_path(@path) }
+      if !changed && File.file?(@path) && File.mtime(@path) != @last
+        changed = true
+      end
+      @last = File.mtime(@path) if changed && File.file?(@path)
+      changed
+    rescue Errno::ENOENT
+      false
+    end
+  end
+
+  class CLI
+    def self.run(argv, out: $stdout, err: $stderr)
+      options = {export: nil, width: 900, height: 1000}
+      OptionParser.new do |opts|
+        opts.banner = "Usage: heze PATH [options]"
+        opts.on("--export PATH") { |v| options[:export] = v }
+        opts.on("--width N", Integer) { |v| options[:width] = v }
+        opts.on("--height N", Integer) { |v| options[:height] = v }
+        opts.on("--no-watch") { options[:no_watch] = true }
+      end.parse!(argv)
+      path = argv.fetch(0)
+      document = if File.directory?(path)
+        first = Dir[File.join(path, "**/*.md")].sort.first or raise Error, "no Markdown files in #{path}"
+        Markdown.parse(Source.read(first))
+      elsif File.extname(path).downcase == ".svg"
+        SVG.parse(path)
+      else
+        Markdown.parse(Source.read(path))
+      end
+      if options[:export]
+        bytes = if document.is_a?(Zaniah::SVG)
+          Renderer.new(width: options[:width], height: options[:height]).render(Node.new(type: :document, text: File.basename(path), children: [], attributes: {}))
+        else
+          Renderer.new(width: options[:width], height: options[:height]).render(document)
+        end
+        File.binwrite(options[:export], bytes)
+      else
+        out.puts "heze: #{path} (#{document.type if document.respond_to?(:type)})"
+      end
+      0
+    rescue OptionParser::ParseError, KeyError, Error => error
+      err.puts "heze: #{error.message}"
+      1
+    end
+  end
+end
