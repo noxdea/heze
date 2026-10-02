@@ -27,6 +27,8 @@ Heze is a headless Markdown and SVG previewer with deterministic PNG export.
 It keeps the parsed document tree independent from the renderer, then uses
 [Zaniah](https://github.com/noxdea/zaniah) for native previews and image output.
 
+![Heze previewing Markdown headings, lists, highlighted Ruby code, and a quote](docs/media/overview.png)
+
 ## Features
 
 - **GitHub Flavored Markdown** — headings, lists, quotes, tables, fenced code, links, and images.
