@@ -64,7 +64,7 @@
     }
     @media (max-width: 560px) {
       .wrap { width: min(100% - 24px, 1160px); }
-      nav a:not(:last-child) { display: none; }
+      nav a[href^="#"] { display: none; }
       .preview { grid-template-columns: 88px 1fr; min-height: 340px; }
       .outline { padding-inline: .6rem; }
       .paper { margin: 10px; padding: 1.15rem; }
@@ -81,7 +81,7 @@
     <nav aria-label="Primary navigation">
       <a href="#capabilities">Capabilities</a>
       <a href="#workflow">Workflow</a>
-      <a href="https://github.com/noxdea/heze">Source</a>
+      <a href="docs/">User guide</a><a href="https://github.com/noxdea/heze">Source</a>
     </nav>
   </header>
   <main id="content">
@@ -92,7 +92,7 @@
         <p class="lede">Heze turns Markdown or static SVG into a native preview and a deterministic PNG, using the same renderer for both.</p>
         <div class="actions">
           <a class="button primary" href="https://rubygems.org/gems/heze">Install the gem</a>
-          <a class="button" href="https://github.com/noxdea/heze#quick-start">Read the guide</a>
+          <a class="button" href="docs/">Read the guide</a>
         </div>
       </div>
       <div class="workbench" aria-label="Heze document preview example">

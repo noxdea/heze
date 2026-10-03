@@ -1,0 +1,46 @@
+title: Heze
+description: Preview Markdown and SVG documents and export deterministic PNG images.
+url: https://noxdea.github.io
+baseurl: /heze
+repository: noxdea/heze
+markdown: kramdown
+plugins:
+  - jekyll-relative-links
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+defaults:
+  - scope:
+      path: docs
+    values:
+      layout: guide
+guide:
+  - title: Getting started
+    url: /docs/
+  - title: Previewing documents
+    url: /docs/preview.html
+  - title: PNG export
+    url: /docs/export.html
+  - title: SVG input
+    url: /docs/svg.html
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - Rakefile
+  - heze.gemspec
+  - heze-0.1.0.gem
+  - README.md
+  - CHANGELOG.md
+  - LICENSE.txt
+  - bench
+  - bin
+  - demo
+  - docs/adr
+  - exe
+  - lib
+  - pkg
+  - sig
+  - spec
+  - test
+  - tools
+  - tmp
